@@ -1,3 +1,12 @@
+/**
+ * (C)2019 Kevin Sangeelee.
+ *
+ * This file is licenced under the GNU GPL Version 2 or later.
+ *     See https://www.gnu.org/licenses/licenses.html
+ *
+ * Use entirely at your own risk, or not at all.
+ */
+
 #include <stdio.h>
 #include <tgmath.h>
 #include "gd32vf103.h"
@@ -12,6 +21,10 @@ uint16_t ac4, ac5, ac6;
 
 float pressure_hpa;
 
+/**
+ * Configure peripherals GPIOB and I2C0, which uses PB6 & PB7 as
+ * open-drain outputs.
+ */
 void i2c_config(void)
 {
     /* enable I2C0 and GPIOB clocks */
@@ -37,6 +50,11 @@ void i2c_config(void)
     i2c_enable(I2C0);
 }
 
+/*
+ * Perform an I2C Start, and write the register address we want (e.g. the BMP085
+ * Control Register is 0xF4)
+ */
+
 void bmp085_request_register(unsigned char addr)
 {
     i2c_start_on_bus(I2C0);
@@ -47,20 +65,29 @@ void bmp085_request_register(unsigned char addr)
     while( ! i2c_flag_get(I2C0, I2C_FLAG_ADDSEND) );
     i2c_flag_clear(I2C0, I2C_FLAG_ADDSEND);
 
-    // Ready to send, according to datasheet p358
+    // Ready to send, according to GD32V datasheet, p358
     i2c_data_transmit(I2C0, addr);
     while(!i2c_flag_get(I2C0, I2C_FLAG_TBE));
 }
 
+/* 
+ * Simply writes the given byte to the BMP085. If we requested the control
+ * register previously, then this will be the value that we write to the
+ * register.
+ */
 void bmp085_write_register(unsigned char value)
 {
     i2c_data_transmit(I2C0, value);
     while(!i2c_flag_get(I2C0, I2C_FLAG_TBE));
 }
 
+/*
+ * Reads 'count' bytes into the given buffer by issuing an I2C start condition
+ * and then reading from the slave repeatedly until the required number of
+ * bytes have been recieved.
+ */
 void bmp085_restart_read(unsigned char *buf, int count)
 {
-    // Time to restart, and send a READ address
     i2c_start_on_bus(I2C0);
     while( ! i2c_flag_get(I2C0, I2C_FLAG_SBSEND) );
     i2c_master_addressing(I2C0, BMP085_ADDRESS7, I2C_RECEIVER);
@@ -85,6 +112,9 @@ void bmp085_restart_read(unsigned char *buf, int count)
     }
 }
 
+/*
+ * Issue a stop condition on the bus, and wait for the controller to confirm.
+ */
 void i2c_stop()
 {
     /* send a stop condition to I2C bus */
@@ -93,9 +123,14 @@ void i2c_stop()
     while(I2C_CTL0(I2C0) & I2C_CTL0_STOP);
 }
 
+/*
+ * Reads the raw temperature and pressure values from the BMP085, and
+ * calculates their compensated values from the calibration data that gets read
+ * from eeprom.
+ */
 int read_bmp085(float altitude) {
 
-    char pbuf[32]; // For sprintf.
+    uint8_t pbuf[32]; // For sprintf.
 
     // Read eeprom data if the array is empty
     // I2C Device Address 0x77 (hardwired into the chip, 0xEE & 0xEF)
@@ -147,12 +182,10 @@ int read_bmp085(float altitude) {
     long b5 = x1 + x2;
     long t = (b5 + 8)  >> 4;
 
-    sprintf(pbuf, "Tem: %d.%dC", (int)t/10, (int)t % 10);
+    sprintf((char *)pbuf, "Tem: %d.%dC", (int)t/10, (int)t % 10);
     LCD_ShowString8(0, 6 * 8, pbuf, YELLOW);
     
-    int idx;
     float p0 = 0;
-    int p1 = 0;
     
     /*
      * Get Uncompensated Pressure from BMP085, based on the OverSampling Setting
@@ -187,11 +220,11 @@ int read_bmp085(float altitude) {
         
     p0 = (float)p / powf(1.0f - (altitude / 44330), 5.255f);
         
-    sprintf(pbuf, "PrU: %d.%02d hPa", p/100, p % 100);
+    sprintf((char *)pbuf, "PrU: %d.%02d hPa", (int)(p/100), (int)(p % 100));
     LCD_ShowString8(0, 7 * 8, pbuf, YELLOW);
 
     pressure_hpa = p0 / 100;
-    sprintf(pbuf, "Pr: %d hPa\n", (int)pressure_hpa);
+    sprintf((char *)pbuf, "Pr: %d hPa\n", (int)pressure_hpa);
     LCD_ShowString8(0, 8 * 8, pbuf, YELLOW);
     
     return 0;
